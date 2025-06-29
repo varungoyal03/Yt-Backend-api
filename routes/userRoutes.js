@@ -1,5 +1,6 @@
 import  express  from 'express';
 import bcrypt from "bcrypt"
+
 import cloudinary from '../config/cloudinary.js';
 import User from "../models/user.schema.js"
 const router=express.Router();
@@ -8,14 +9,12 @@ import jwt from "jsonwebtoken"
 router.post("/signup",async (req,res)=>{
    try {
      if(!req.body?.password){
-        throw new error("Data not given")
+        throw new Error("Data not given")
      }
     // do validation 
     //id user alredy exist check
     const hashedPassword=await bcrypt.hash(req.body.password,10);
     const uploadImage=await cloudinary.uploader.upload(req.files.logoUrl.tempFilePath);
-
-console.log(uploadImage)
 
     const newUser = new User({
          email: req.body.email,
@@ -43,6 +42,8 @@ res.status(201).json({message: "user added" ,data:user})
 
 router.post("/login",async (req,res)=>{
     try {
+        console.log(req.body);
+        if(!req.body || !req.body.password || !req.body.email){throw new Error("Data not given") }
           const {email,password}=req.body;
           const existingUser = await User.findOne({ email: email });
 
@@ -51,7 +52,7 @@ router.post("/login",async (req,res)=>{
           }
       
           const isValid = await bcrypt.compare(
-            req.body.password,
+            password,
             existingUser.password
           );
 
@@ -92,4 +93,85 @@ router.post("/login",async (req,res)=>{
         .json({ error: "something went wrong", message: error.message });
     }
 })
+
+router.put("/update-profile" , checkAuth , async(req , res)=>{
+    try {
+      const {channelName , phone} = req.body;
+      let updatedData = {channelName , phone}
+  
+  if(req.files && req.files.logoUrl){
+    const uploadedImage = await cloudinary.uploader.upload(req.files.logoUrl.tempFilePath);
+    updatedData.logoUrl = uploadedImage.secure_url;
+    updatedData.logoId = uploadedImage.public_id
+  }
+  
+  const updatedUser = await User.findByIdAndUpdate(req.user._id , updatedData , {new:true})
+  
+  res.status(200).json({message:"Profile Updated Successfully" , updatedUser})
+    } catch (error) {
+      console.log(error);
+      res
+        .status(500)
+        .json({ error: "something went wrong", message: error.message });
+    }
+  })
+  
+  
+  //IMPROVE
+router.post("/subscribe" , checkAuth , async (req , res)=>{
+    try {
+      const {channelId} = req.body // *userId = currentUser , channelId = user to subscribe ( channel)
+      
+      if(req.user._id === channelId){
+        return res.status(400).json({error:"You cannot subscribe to yourself"})
+      }
+  
+
+
+      const result = await User.updateOne(
+        { _id: req.user._id },
+        { $addToSet: { subscribedChannels: channelId } }
+      );
+      
+      if (result.modifiedCount === 0) {
+        return res.status(400).json({ error: "Already subscribed to this channel" });
+      }
+
+const subscribedUser = await User.findByIdAndUpdate(
+  channelId,
+  { $inc: { subscribers: 1 } },
+  { new: true }
+);
+
+const currentUser = await User.findById(req.user._id);
+
+res.status(200).json({
+  message: "Subscribed successfully ✅",
+  data: {
+    currentUser,
+    subscribedUser
+  }
+});
+
+
+      
+  
+      res.status(200).json(
+        {
+          message:"Subscribed Successfully✅",
+          data:{currentUser,
+          subscribedUser
+          }}
+      )
+  
+    } catch (error) {
+      console.log(error);
+      res
+        .status(500)
+        .json({ error: "something went wrong", message: error.message });
+    }
+  })
+
+
+
 export default router
